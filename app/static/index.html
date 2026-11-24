@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>聚合口摘链演练</title>
+<style>
+  :root {
+    --bg: #0f1720;
+    --panel: #17222d;
+    --panel-2: #1e2c39;
+    --line: #2a3b4b;
+    --text: #dce7f1;
+    --muted: #8ba3b8;
+    --accent: #4ea1ff;
+    --ok: #37c97e;
+    --warn: #f0b429;
+    --err: #ef5b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  header .grow { flex: 1; }
+  main {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 14px;
+    padding: 16px 20px 40px;
+    align-items: start;
+  }
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  section.panel h2 {
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: .02em;
+  }
+  label { color: var(--muted); font-size: 12px; display: block; margin: 6px 0 3px; }
+  input, select, button, textarea {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+  }
+  input, select { width: 100%; }
+  button {
+    cursor: pointer;
+    background: #24405a;
+    border-color: #345a7d;
+    padding: 6px 12px;
+  }
+  button:hover { background: #2c4f6f; }
+  button.primary { background: #1d5c9e; border-color: #2f7cc9; }
+  button.danger { background: #5c1d2a; border-color: #8a2c3f; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .row > div { flex: 1 1 90px; min-width: 0; }
+  .row > div.tight { flex: 0 0 auto; }
+  .row > div.tight button { width: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td {
+    text-align: left;
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  th { color: var(--muted); font-weight: 500; }
+  tbody tr:hover { background: #1b2935; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    background: var(--panel-2);
+  }
+  .pill.linkA { color: #8fc3ff; border-color: #2f5f8f; }
+  .pill.linkB { color: #8fe3c4; border-color: #2f7a60; }
+  .pill.ok { color: var(--ok); border-color: #2b6b4b; }
+  .pill.warn { color: var(--warn); border-color: #7a6120; }
+  .pill.err { color: var(--err); border-color: #7c2b36; }
+  .pill.pending { color: var(--accent); border-color: #2f5f8f; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; font-size: 12px; }
+  .kv .k { color: var(--muted); }
+  .log {
+    height: 190px;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+    background: #101a23;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px;
+  }
+  .log div.err { color: var(--err); }
+  .log div.ok { color: var(--ok); }
+  .log div.warn { color: var(--warn); }
+  .hint { color: var(--muted); font-size: 11.5px; margin-top: 6px; line-height: 1.5; }
+  .spacer { height: 8px; }
+  .scroll { max-height: 240px; overflow: auto; }
+  .wide { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>聚合口摘链演练</h1>
+  <span class="sub">两条 FIFO 链路 · 送达/确认延时可变 · 摘链一次一个</span>
+  <span class="grow"></span>
+  <span id="health" class="pill">连接中…</span>
+  <button id="btn-reset" class="danger">重置演练</button>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>链路延时</h2>
+    <div class="row" id="link-a-row">
+      <div class="tight"><label>链路</label><span class="pill linkA">A</span></div>
+      <div><label>送达延时 (ms)</label><input id="a-delivery" type="number" min="0" value="300"></div>
+      <div><label>确认延时 (ms)</label><input id="a-ack" type="number" min="0" value="200"></div>
+      <div class="tight"><button data-link="A">应用</button></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="row" id="link-b-row">
+      <div class="tight"><label>链路</label><span class="pill linkB">B</span></div>
+      <div><label>送达延时 (ms)</label><input id="b-delivery" type="number" min="0" value="150"></div>
+      <div><label>确认延时 (ms)</label><input id="b-ack" type="number" min="0" value="80"></div>
+      <div class="tight"><button data-link="B">应用</button></div>
+    </div>
+    <div class="spacer"></div>
+    <div id="link-status" class="kv small"></div>
+    <div class="hint">延时在报文开始处理时读取；对已在途报文不影响。</div>
+  </section>
+
+  <section class="panel">
+    <h2>流与发送</h2>
+    <div class="row">
+      <div><label>新建流 ID（留空自动）</label><input id="flow-id" placeholder="flow-1"></div>
+      <div><label>初始链路</label>
+        <select id="flow-link"><option value="A">A</option><option value="B">B</option></select>
+      </div>
+      <div class="tight"><button id="btn-create-flow" class="primary">建流</button></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="row">
+      <div><label>选择流</label><select id="send-flow"></select></div>
+      <div><label>编号 seq</label><input id="send-seq" type="number" min="1" value="1"></div>
+      <div><label>载荷（可选）</label><input id="send-payload" placeholder="hello"></div>
+      <div class="tight"><button id="btn-send" class="primary">发送</button></div>
+      <div class="tight"><button id="btn-send-3">连发 3 个</button></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="scroll"><table>
+      <thead><tr><th>流</th><th>当前链路</th><th>已接纳</th><th>已送达</th></tr></thead>
+      <tbody id="flow-table"><tr><td colspan="4" class="muted">暂无流</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>申请摘链</h2>
+    <div class="row">
+      <div><label>待摘成员链路</label>
+        <select id="rm-member"><option value="A">A（迁往 B）</option><option value="B">B（迁往 A）</option></select>
+      </div>
+      <div><label>等待确认时限 (ms)</label><input id="rm-wait" type="number" min="1" value="3000"></div>
+      <div><label>缓冲上限（包，跨待迁流合计）</label><input id="rm-buffer" type="number" min="0" value="5"></div>
+      <div class="tight"><button id="btn-removal" class="primary">申请摘链</button></div>
+    </div>
+    <div class="hint">对端确认成员链路上先前排队的报文已全部收齐后才迁流；等待期间待迁流的新包进入缓冲，满则拒收，其他流照常发送。超时则不摘链，缓存的包回到原链路。</div>
+    <div class="spacer"></div>
+    <div id="removal-status" class="kv small"><span class="muted">暂无摘链申请</span></div>
+    <div class="spacer"></div>
+    <div class="scroll"><table>
+      <thead><tr><th>申请</th><th>成员</th><th>状态</th><th>待确认</th><th>缓冲</th><th>拒收</th></tr></thead>
+      <tbody id="removal-table"><tr><td colspan="6" class="muted">暂无</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="panel">
+    <h2>对端收包顺序</h2>
+    <div class="row">
+      <div><label>选择流</label><select id="recv-flow"></select></div>
+      <div class="tight"><button id="btn-refresh-recv">刷新</button></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>seq</th><th>链路</th><th>报文</th><th>送达时间</th></tr></thead>
+      <tbody id="recv-table"><tr><td colspan="5" class="muted">暂无</td></tr></tbody>
+    </table></div>
+    <div class="hint" id="recv-summary"></div>
+  </section>
+
+  <section class="panel wide">
+    <h2>事件</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let lastFlows = [];
+let lastRemovalDetail = null;
+let displayedRemovalId = null;
+
+function pill(text, cls = "") {
+  const span = document.createElement("span");
+  span.className = "pill " + cls;
+  span.textContent = text;
+  return span;
+}
+function cell(tr, content) {
+  const td = document.createElement("td");
+  if (content instanceof Node) td.appendChild(content);
+  else td.textContent = content == null ? "" : String(content);
+  tr.appendChild(td);
+  return td;
+}
+function logLine(text, cls = "") {
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  const t = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  div.textContent = `[${t}] ${text}`;
+  const box = $("log");
+  box.prepend(div);
+  while (box.childElementCount > 300) box.removeChild(box.lastChild);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) {
+    const msg = data && data.error ? data.error : `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+async function refresh() {
+  try {
+    const state = await api("GET", "/api/state");
+    $("health").className = "pill ok";
+    $("health").textContent = "运行中";
+    renderLinks(state.links);
+    renderFlows(state.flows);
+    if (state.active_removal) renderActiveRemoval(state.active_removal);
+  } catch (err) {
+    $("health").className = "pill err";
+    $("health").textContent = "服务不可用";
+  }
+}
+
+function renderLinks(links) {
+  const box = $("link-status");
+  box.textContent = "";
+  for (const link of links) {
+    const k = document.createElement("span");
+    k.className = "k";
+    k.textContent = `链路 ${link.id}`;
+    const v = document.createElement("span");
+    v.className = "mono";
+    v.textContent =
+      `队列 ${link.queue_depth} · 已交付 ${link.delivered} · 已确认 ${link.acked} · ` +
+      `状态 ${link.current_phase}${link.current_packet_id ? " (" + link.current_packet_id + ")" : ""}`;
+    box.appendChild(k);
+    box.appendChild(v);
+  }
+}
+
+function renderFlows(flows) {
+  lastFlows = flows;
+  const tbody = $("flow-table");
+  tbody.textContent = "";
+  if (!flows.length) {
+    const tr = document.createElement("tr");
+    const td = cell(tr, "暂无流");
+    td.className = "muted";
+    td.colSpan = 4;
+    tbody.appendChild(tr);
+  }
+  for (const flow of flows) {
+    const tr = document.createElement("tr");
+    cell(tr, flow.id).className = "mono";
+    const lc = cell(tr, "");
+    lc.appendChild(pill(flow.link, "link" + flow.link));
+    cell(tr, flow.accepted_count);
+    cell(tr, flow.received_count);
+    tbody.appendChild(tr);
+  }
+  syncFlowSelects(flows);
+}
+
+function syncFlowSelects(flows) {
+  for (const id of ["send-flow", "recv-flow"]) {
+    const sel = $(id);
+    const prev = sel.value;
+    const wanted = flows.map((f) => f.id).join("|");
+    if (sel.dataset.signature !== wanted) {
+      sel.textContent = "";
+      for (const flow of flows) {
+        const opt = document.createElement("option");
+        opt.value = flow.id;
+        opt.textContent = `${flow.id} (${flow.link})`;
+        sel.appendChild(opt);
+      }
+      sel.dataset.signature = wanted;
+      if (flows.some((f) => f.id === prev)) sel.value = prev;
+    }
+  }
+}
+
+function renderActiveRemoval(removal) {
+  const box = $("removal-status");
+  box.textContent = "";
+  if (!removal) {
+    displayedRemovalId = null;
+    const span = document.createElement("span");
+    span.className = "muted";
+    span.textContent = "当前无进行中的摘链申请";
+    box.appendChild(span);
+    return;
+  }
+  displayedRemovalId = removal.removal_id;
+  lastRemovalDetail = removal;
+  const statusPill = pill(
+    removal.status,
+    removal.status === "pending" ? "pending" : removal.status === "succeeded" ? "ok" : "warn"
+  );
+  const pairs = [
+    ["申请", removal.removal_id],
+    ["状态", statusPill],
+    ["成员 → 目标", `${removal.member_link} → ${removal.target_link}`],
+    ["等待时限", `${removal.wait_ms} ms`],
+    ["缓冲上限", `${removal.buffer_limit} 包`],
+    ["待确认报文", `${removal.snapshot_acked} / ${removal.snapshot_packet_count}`],
+    ["当前缓冲", `${removal.buffer_used} 包`],
+    ["已拒收", `${removal.rejected_count} 包`],
+    ["迟到确认（已忽略）", `${removal.late_confirmations_ignored} 次`],
+    ["结果", removal.result || "等待中"],
+  ];
+  for (const [k, v] of pairs) {
+    const kk = document.createElement("span");
+    kk.className = "k";
+    kk.textContent = k;
+    const vv = document.createElement("span");
+    vv.className = "mono";
+    if (v instanceof Node) vv.appendChild(v);
+    else vv.textContent = v;
+    box.appendChild(kk);
+    box.appendChild(vv);
+  }
+}
+
+async function refreshRemovals() {
+  let removals = [];
+  try { removals = (await api("GET", "/api/removals")).removals; } catch (_) {}
+  const tbody = $("removal-table");
+  tbody.textContent = "";
+  if (!removals.length) {
+    const tr = document.createElement("tr");
+    const td = cell(tr, "暂无");
+    td.className = "muted";
+    td.colSpan = 6;
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const r of removals) {
+    const tr = document.createElement("tr");
+    const c1 = cell(tr, r.removal_id);
+    c1.className = "mono";
+    cell(tr, r.member_link);
+    const sc = cell(tr, "");
+    const cls = r.status === "succeeded" ? "ok" : r.status === "timed_out" ? "warn" : "pending";
+    sc.appendChild(pill(r.status, cls));
+    cell(tr, `${r.snapshot_acked}/${r.snapshot_packet_count}`);
+    cell(tr, r.buffer_used);
+    cell(tr, r.rejected_count);
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", () => showRemoval(r.removal_id));
+    tbody.appendChild(tr);
+  }
+  // Keep the pending request on screen; if a previously shown request just
+  // finished, refresh its detail once so the final result stays visible.
+  const active = removals.find((r) => r.status === "pending");
+  if (active) {
+    renderActiveRemoval(active);
+  } else if (
+    displayedRemovalId &&
+    lastRemovalDetail &&
+    lastRemovalDetail.removal_id === displayedRemovalId &&
+    lastRemovalDetail.status === "pending"
+  ) {
+    // The shown request just finished: fetch it once to show the final result.
+    showRemoval(displayedRemovalId);
+  }
+}
+async function showRemoval(id) {
+  try {
+    lastRemovalDetail = await api("GET", "/api/removals/" + encodeURIComponent(id));
+    renderActiveRemoval(lastRemovalDetail);
+    logLine(
+      `摘链 ${id}: ${lastRemovalDetail.status} (${lastRemovalDetail.reason || "-"})，` +
+      `迁移流 ${lastRemovalDetail.moved_flow_ids.length} 条，回退/转投 ${lastRemovalDetail.flushed_packet_ids.length} 包`,
+      lastRemovalDetail.status === "succeeded" ? "ok" : lastRemovalDetail.status === "timed_out" ? "warn" : ""
+    );
+  } catch (err) { logLine(err.message, "err"); }
+}
+
+async function refreshReceived() {
+  const flowId = $("recv-flow").value;
+  const tbody = $("recv-table");
+  tbody.textContent = "";
+  if (!flowId) {
+    const tr = document.createElement("tr");
+    const td = cell(tr, "暂无流");
+    td.className = "muted";
+    td.colSpan = 5;
+    tbody.appendChild(tr);
+    $("recv-summary").textContent = "";
+    return;
+  }
+  let data;
+  try { data = await api("GET", `/api/flows/${encodeURIComponent(flowId)}/received`); }
+  catch (err) { logLine(err.message, "err"); return; }
+  if (!data.delivery_order.length) {
+    const tr = document.createElement("tr");
+    const td = cell(tr, "该流暂无送达记录");
+    td.className = "muted";
+    td.colSpan = 5;
+    tbody.appendChild(tr);
+  }
+  for (const item of data.delivery_order) {
+    const tr = document.createElement("tr");
+    cell(tr, item.delivery_index);
+    cell(tr, item.seq);
+    const lc = cell(tr, "");
+    lc.appendChild(pill(item.link, "link" + item.link));
+    cell(tr, item.packet_id).className = "mono";
+    cell(tr, item.received_at);
+    tbody.appendChild(tr);
+  }
+  const links = [...new Set(data.delivery_order.map((x) => x.link))].join(" → ");
+  const seqs = data.delivery_order.map((x) => x.seq);
+  const ordered = seqs.every((v, i) => i === 0 || v >= seqs[i - 1]);
+  $("recv-summary").textContent =
+    `流 ${flowId} 当前链路 ${data.link}；共送达 ${data.count} 包；经过链路 ${links || "-"}；` +
+    `编号单调：${ordered ? "是" : "否（按接纳顺序送达）"}`;
+}
+
+function nextSeq() {
+  const flowId = $("send-flow").value;
+  const flow = lastFlows.find((f) => f.id === flowId);
+  return flow ? flow.accepted_count + 1 : 1;
+}
+
+async function sendOne(seqOverride) {
+  const flowId = $("send-flow").value;
+  if (!flowId) { logLine("请先建流", "warn"); return; }
+  const seq = seqOverride != null ? seqOverride : Number($("send-seq").value) || 1;
+  const payload = $("send-payload").value || null;
+  try {
+    const res = await api("POST", `/api/flows/${encodeURIComponent(flowId)}/packets`, { seq, payload });
+    const tag = res.buffered ? "缓冲" : "入队";
+    logLine(`发送 ${flowId}#${seq} → ${tag}${res.buffered ? "（摘链等待中）" : "（链路 " + res.packet.link + "）"}`,
+      res.buffered ? "warn" : "");
+    $("send-seq").value = seq + 1;
+  } catch (err) {
+    const extra = err.data ? ` [${err.status}]` : "";
+    logLine(`发送 ${flowId}#${seq} 被拒${extra}: ${err.message}`, "err");
+  }
+}
+
+function bind() {
+  for (const btn of document.querySelectorAll("[data-link]")) {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.link;
+      const prefix = id.toLowerCase();
+      const body = {
+        delivery_delay_ms: Number($(prefix + "-delivery").value),
+        ack_delay_ms: Number($(prefix + "-ack").value),
+      };
+      try {
+        await api("PATCH", "/api/links/" + id, body);
+        logLine(`链路 ${id} 延时更新为 送达 ${body.delivery_delay_ms}ms / 确认 ${body.ack_delay_ms}ms`, "ok");
+        refresh();
+      } catch (err) { logLine(err.message, "err"); }
+    });
+  }
+
+  $("btn-create-flow").addEventListener("click", async () => {
+    const flowId = $("flow-id").value.trim() || null;
+    try {
+      const flow = await api("POST", "/api/flows", { flow_id: flowId, link: $("flow-link").value });
+      logLine(`建流 ${flow.id} → 链路 ${flow.link}`, "ok");
+      $("flow-id").value = "";
+      refresh();
+    } catch (err) { logLine(err.message, "err"); }
+  });
+
+  $("btn-send").addEventListener("click", () => sendOne());
+  $("btn-send-3").addEventListener("click", async () => {
+    const base = Number($("send-seq").value) || nextSeq();
+    for (let i = 0; i < 3; i++) await sendOne(base + i);
+  });
+
+  $("send-flow").addEventListener("change", () => { $("send-seq").value = nextSeq(); });
+  $("recv-flow").addEventListener("change", refreshReceived);
+  $("btn-refresh-recv").addEventListener("click", refreshReceived);
+
+  $("btn-removal").addEventListener("click", async () => {
+    const body = {
+      member_link: $("rm-member").value,
+      wait_ms: Number($("rm-wait").value),
+      buffer_limit: Number($("rm-buffer").value),
+    };
+    try {
+      const r = await api("POST", "/api/removals", body);
+      logLine(`摘链申请 ${r.removal_id}: 成员 ${r.member_link}，等待 ${r.wait_ms}ms，缓冲 ${r.buffer_limit}`,
+        r.status === "pending" ? "" : "ok");
+      renderActiveRemoval(r);
+      refreshRemovals();
+    } catch (err) { logLine(err.message, "err"); }
+  });
+
+  $("btn-reset").addEventListener("click", async () => {
+    try {
+      await api("POST", "/api/reset");
+      logLine("演练已重置", "ok");
+      refresh(); refreshRemovals();
+    } catch (err) { logLine(err.message, "err"); }
+  });
+}
+
+bind();
+refresh();
+refreshRemovals();
+setInterval(refresh, 500);
+setInterval(refreshRemovals, 700);
+setInterval(refreshReceived, 900);
+</script>
+</body>
+</html>

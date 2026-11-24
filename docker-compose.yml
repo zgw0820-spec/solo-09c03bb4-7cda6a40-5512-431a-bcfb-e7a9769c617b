@@ -1,0 +1,35 @@
+services:
+  drill:
+    build: .
+    image: aggregation-link-drill:local
+    container_name: aggregation-link-drill
+    ports:
+      - "${DRILL_PORT:-8000}:8000"
+    environment:
+      # Initial per-link timing. Can also be changed at runtime through the UI
+      # or PATCH /api/links/{A|B}.
+      DRILL_A_DELIVERY_MS: "${DRILL_A_DELIVERY_MS:-300}"
+      DRILL_A_ACK_MS: "${DRILL_A_ACK_MS:-200}"
+      DRILL_B_DELIVERY_MS: "${DRILL_B_DELIVERY_MS:-150}"
+      DRILL_B_ACK_MS: "${DRILL_B_ACK_MS:-80}"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  # One-shot end-to-end drill, only started on demand:
+  #   docker compose --profile drill run --rm drill-client
+  drill-client:
+    image: aggregation-link-drill:local
+    profiles: ["drill"]
+    depends_on:
+      drill:
+        condition: service_healthy
+    command: ["python", "drills/run_drill.py", "--base-url", "http://drill:8000"]
